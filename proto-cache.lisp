@@ -1,7 +1,8 @@
 (defpackage #:proto-cache
   (:use #:cl)
   (:export #:get-from-cache
-           #:set-in-cache)
+           #:set-in-cache
+           #:remove-from-cache)
   (:local-nicknames
    (#:act #:ace.core.thread)
    (#:acd #:ace.core.defun)
@@ -23,3 +24,9 @@
   (declare (acd:self (symbol google:any) google:any))
   (act:with-frmutex-write (*cache-mutex*)
     (setf (gethash key *cache*) any)))
+
+(acd:defun* remove-from-cache (key)
+  "Remove the ANY message in cache with KEY."
+  (declare (acd:self (symbol) boolean))
+  (act:with-frmutex-write (*cache-mutex*)
+    (remhash key *cache*)))
