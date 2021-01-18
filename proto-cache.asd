@@ -4,7 +4,7 @@
   :licence "MIT-style"
   :description      "A simple cache utility for protos."
   :long-description "A simple cache utility for protos."
-  :depends-on (:ace.core :cl-protobufs :md5)
+  :depends-on (:ace.core :cl-protobufs :drakma)
   :components
   ((:module "src"
     :serial t
