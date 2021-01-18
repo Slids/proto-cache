@@ -83,7 +83,7 @@
 (defun update-publisher-any (username password any)
   "Updates the google:any message for a publisher
    with a specified username and password.
-   The actuall subscriber calls happen in a seperate thread
+   The actual subscriber calls happen in a separate thread
    but 'T is returned to the user to indicate the any
    was truly updated."
   (ace:clet ((ps-class
