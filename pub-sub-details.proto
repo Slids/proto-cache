@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package pub_sub_details;
+
+import "any.proto";
+
+message PubSubDetails {
+  repeated string subscriber_list = 1;
+  google.protobuf.Any current_any = 2;
+  string username = 3;
+  string password = 4;
+}
+
+message PubSubDetailsCache {
+  map<string,PubSubDetails> pub_sub_cache = 1;
+}
