@@ -6,11 +6,12 @@ import "any.proto";
 
 message PubSubDetails {
   repeated string subscriber_list = 1;
-  google.protobuf.Any current_any = 2;
+  google.protobuf.Any current_message = 2;
   string username = 3;
   string password = 4;
 }
 
 message PubSubDetailsCache {
+  // The key is the username string found in PubSubDetails.
   map<string,PubSubDetails> pub_sub_cache = 1;
 }

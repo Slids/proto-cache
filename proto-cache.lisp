@@ -24,16 +24,16 @@
   (declare (acd:self (string string) psd:pub-sub-details))
   (psd:make-pub-sub-details :username username
                             :password password
-                            :current-any (google:make-any)))
+                            :current-message (google:make-any)))
 
-(defmethod (setf psd:current-any) :around (new-value (psd psd:pub-sub-details))
-  "Set the new current-any field on a `pub-sub-details` class.
+(defmethod (setf psd:current-message) :around (new-value (psd psd:pub-sub-details))
+  "Set the new current-message field on a `pub-sub-details` class.
    Send the new google:any message to any subscriber."
   (let ((ps-mutex (gethash (psd:username psd) *mutex-for-pub-sub-details*)))
     (act:with-frmutex-write (ps-mutex)
       (call-next-method))))
 
-(defmethod (setf psd:current-any) :after (new-value (psd psd:pub-sub-details))
+(defmethod (setf psd:current-message) :after (new-value (psd psd:pub-sub-details))
   (let ((subscriber-list (psd:subscriber-list psd)))
     (dolist (subscriber subscriber-list)
       (unwind-protect
@@ -88,7 +88,7 @@
     (declare (ignore correct-password))
     (act:make-thread
      (lambda (ps-class)
-       (setf (psd:current-any ps-class) any))
+       (setf (psd:current-message ps-class) any))
      :arguments (list ps-class))
     t))
 
@@ -110,8 +110,6 @@
         (new-mutex-for-pub-sub-details (make-hash-table :test 'equal)))
     (loop for key being the hash-keys of (psd:pub-sub-cache new-cache)
           do
-             (print key)
-             (print (psd:pub-sub-cache-gethash key new-cache))
              (setf (gethash key new-mutex-for-pub-sub-details)
                    (act:make-frmutex)))
     (act:with-frmutex-write (*cache-mutex*)
