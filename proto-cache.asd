@@ -5,7 +5,7 @@
   :description      "A simple cache utility for protos."
   :long-description "A simple cache utility for protos."
   :defsystem-depends-on (:cl-protobufs)
-  :depends-on (:ace.core :cl-protobufs :drakma)
+  :depends-on (:ace.core :ace.flag :cl-protobufs :drakma)
   :components
   ((:module "src"
     :serial t
@@ -14,4 +14,7 @@
     ((:protobuf-source-file "pub-sub-details"
       :proto-pathname "pub-sub-details.proto"
       :proto-search-path ("../cl-protobufs/google/protobuf/"))
-     (:file "proto-cache")))))
+     (:file "proto-cache"))))
+  :build-operation "program-op"
+  :build-pathname "proto-cache"
+  :entry-point "proto-cache:main")

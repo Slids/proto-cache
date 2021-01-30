@@ -4,20 +4,40 @@
            #:register-subscriber
            #:update-publisher-any
            #:save-state-to-file
-           #:load-state-from-file)
+           #:load-state-from-file
+           #:main)
   (:local-nicknames
    (#:act #:ace.core.thread)
    (#:acd #:ace.core.defun)
+   (#:ach #:ace.core.hook)
    (#:ace #:ace.core.etc)
+   (#:flag #:ace.flag)
    (#:google #:cl-protobufs.google.protobuf)
    (#:psd #:cl-protobufs.pub-sub-details)))
 
 (in-package #:proto-cache)
 
+;;;;;;;;;;;;;;;;;;;;;;;;
+;; Flag definitions
+
+(flag:define flag::*load-file* ""
+  "Determines the file to load PROTO-CACHE from on startup"
+  :type string)
+
+(flag:define flag::*save-file* ""
+  "Determines the file to save PROTO-CACHE from on shutdown"
+  :type string)
+
+(flag:define flag::*new-subscriber* ""
+  "URL for a new subscriber, just for testing"
+  :type string)
+
+;;;;;;;;;;;;;;;;;;;;;;;;
+;; Global definitions
+
 (defvar *cache* (psd:make-pub-sub-details-cache))
 (defvar *mutex-for-pub-sub-details* (make-hash-table :test 'equal))
 (defvar *cache-mutex* (act:make-frmutex))
-;; (cl-protobufs.implementation::make-serializer psd:pub-sub-details-cache)
 
 (acd:defun* make-pub-sub-details (username password)
   "Make the pub-sub-details struct with a given password."
@@ -92,12 +112,27 @@
      :arguments (list ps-class))
     t))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Main for the executable.
+
+(defun main ()
+  (register-publisher "pika" "chu")
+  (register-subscriber "pika" flag::*new-subscriber*)
+  (update-publisher-any
+   "pika" "chu"
+   (google:make-any :type-url "a"))
+  (sleep 10))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Save load functions.
+
 (defun save-state-to-file (&key (filename "/tmp/proto-cache.txt"))
   "Save the current state of the proto cache to *cache* global
    to FILENAME as a serialized protocol buffer message."
   (act:with-frmutex-read (*cache-mutex*)
     (with-open-file (stream filename :direction :output
-                                     :element-type '(unsigned-byte 8))
+                                     :element-type '(unsigned-byte 8)
+                                     :if-exists :supersede)
       (cl-protobufs:serialize-to-stream stream *cache*))))
 
 (defun load-state-from-file (&key (filename "/tmp/proto-cache.txt"))
@@ -115,3 +150,20 @@
     (act:with-frmutex-write (*cache-mutex*)
       (setf *mutex-for-pub-sub-details* new-mutex-for-pub-sub-details
             *cache* new-cache))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Load/Exit  Hooks.
+
+(defmethod ach::at-restart parse-command-line :before load-proto-cache ()
+  "Parse the command line flags."
+  (flag:parse-command-line))
+
+(defmethod ach::at-restart load-proto-cache ()
+  "Load the command line specified file at startup."
+  (when (string/= flag::*load-file* "")
+    (load-state-from-file :filename flag::*load-file*)))
+
+(defmethod ach::at-exit save-proto-cache ()
+  "Save the command line specified file at exit."
+  (when (string/= flag::*save-file* "")
+    (save-state-to-file :filename flag::*save-file*)))
