@@ -7,10 +7,10 @@
            #:load-state-from-file
            #:main)
   (:local-nicknames
-   (#:act #:ace.core.thread)
-   (#:acd #:ace.core.defun)
-   (#:ach #:ace.core.hook)
-   (#:ace #:ace.core.etc)
+   (#:thread #:ace.core.thread)
+   (#:defun #:ace.core.defun)
+   (#:hook #:ace.core.hook)
+   (#:etc #:ace.core.etc)
    (#:flag #:ace.flag)
    (#:google #:cl-protobufs.google.protobuf)
    (#:psd #:cl-protobufs.pub-sub-details)))
@@ -21,11 +21,11 @@
 ;; Flag definitions
 
 (flag:define flag::*load-file* ""
-  "Determines the file to load PROTO-CACHE from on startup"
+  "Specifies the file from which to load the PROTO-CACHE on start up."
   :type string)
 
 (flag:define flag::*save-file* ""
-  "Determines the file to save PROTO-CACHE from on shutdown"
+  "Specifies the file to save PROTO-CACHE to on shutdown"
   :type string)
 
 (flag:define flag::*new-subscriber* ""
@@ -41,11 +41,11 @@
 
 (defvar *cache* (psd:make-pub-sub-details-cache))
 (defvar *mutex-for-pub-sub-details* (make-hash-table :test 'equal))
-(defvar *cache-mutex* (act:make-frmutex))
+(defvar *cache-mutex* (thread:make-frmutex))
 
-(acd:defun* make-pub-sub-details (username password)
+(defun:defun* make-pub-sub-details (username password)
   "Make the pub-sub-details struct with a given password."
-  (declare (acd:self (string string) psd:pub-sub-details))
+  (declare (defun:self (string string) psd:pub-sub-details))
   (psd:make-pub-sub-details :username username
                             :password password
                             :current-message (google:make-any)))
@@ -54,7 +54,7 @@
   "Set the new current-message field on a `pub-sub-details` class.
    Send the new google:any message to any subscriber."
   (let ((ps-mutex (gethash (psd:username psd) *mutex-for-pub-sub-details*)))
-    (act:with-frmutex-write (ps-mutex)
+    (thread:with-frmutex-write (ps-mutex)
       (call-next-method))))
 
 (defmethod (setf psd:current-message) :after (new-value (psd psd:pub-sub-details))
@@ -71,7 +71,7 @@
   "Setf function for the subscriber list.
    Locks the pub-sub-details frmutex before writing."
   (let ((ps-mutex (gethash (psd:username psd) *mutex-for-pub-sub-details*)))
-    (act:with-frmutex-write (ps-mutex)
+    (thread:with-frmutex-write (ps-mutex)
       (call-next-method))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -80,22 +80,22 @@
 (defun register-publisher (username password)
   "Register a publisher with the proto-cache."
   (let ((pub-sub-struct (make-pub-sub-details username password)))
-    (act:with-frmutex-write (*cache-mutex*)
+    (thread:with-frmutex-write (*cache-mutex*)
       (unless (psd:pub-sub-cache-gethash username *cache*)
         (setf (psd:pub-sub-cache-gethash username *cache*)
               pub-sub-struct
               (gethash username *mutex-for-pub-sub-details*)
-              (act:make-frmutex))
+              (thread:make-frmutex))
         t))))
 
 (defun register-subscriber (publisher address)
   "Register a new subscriber to a publisher."
-  (ace:clet ((ps-struct
-              (act:with-frmutex-read (*cache-mutex*)
+  (etc:clet ((ps-struct
+              (thread:with-frmutex-read (*cache-mutex*)
                 (psd:pub-sub-cache-gethash publisher *cache*)))
              (ps-mutex
               (gethash publisher *mutex-for-pub-sub-details*)))
-    (act:with-frmutex-write (ps-mutex)
+    (thread:with-frmutex-write (ps-mutex)
       (push address (psd:subscriber-list ps-struct)))))
 
 (defun update-publisher-any (username password any)
@@ -104,13 +104,13 @@
    The actual subscriber calls happen in a separate thread
    but 'T is returned to the user to indicate the any
    was truly updated."
-  (ace:clet ((ps-class
-              (act:with-frmutex-read (*cache-mutex*)
+  (etc:clet ((ps-class
+              (thread:with-frmutex-read (*cache-mutex*)
                 (psd:pub-sub-cache-gethash username *cache*)))
              (correct-password (string= (psd:password ps-class)
                                         password)))
     (declare (ignore correct-password))
-    (act:make-thread
+    (thread:make-thread
      (lambda (ps-class)
        (setf (psd:current-message ps-class) any))
      :arguments (list ps-class))
@@ -133,7 +133,7 @@
 (defun save-state-to-file (&key (filename "/tmp/proto-cache.txt"))
   "Save the current state of the proto cache to *cache* global
    to FILENAME as a serialized protocol buffer message."
-  (act:with-frmutex-read (*cache-mutex*)
+  (thread:with-frmutex-read (*cache-mutex*)
     (with-open-file (stream filename :direction :output
                                      :element-type '(unsigned-byte 8)
                                      :if-exists :supersede)
@@ -150,26 +150,26 @@
     (loop for key being the hash-keys of (psd:pub-sub-cache new-cache)
           do
              (setf (gethash key new-mutex-for-pub-sub-details)
-                   (act:make-frmutex)))
-    (act:with-frmutex-write (*cache-mutex*)
+                   (thread:make-frmutex)))
+    (thread:with-frmutex-write (*cache-mutex*)
       (setf *mutex-for-pub-sub-details* new-mutex-for-pub-sub-details
             *cache* new-cache))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Load/Exit  Hooks.
 
-(defmethod ach::at-restart parse-command-line ()
+(defmethod hook::at-restart parse-command-line ()
   "Parse the command line flags."
   (flag:parse-command-line)
   (when flag::*help*
     (flag:print-help)))
 
-(defmethod ach::at-restart load-proto-cache :after parse-command-line  ()
+(defmethod hook::at-restart load-proto-cache :after parse-command-line  ()
   "Load the command line specified file at startup."
   (when (string/= flag::*load-file* "")
     (load-state-from-file :filename flag::*load-file*)))
 
-(defmethod ach::at-exit save-proto-cache ()
+(defmethod hook::at-exit save-proto-cache ()
   "Save the command line specified file at exit."
   (when (string/= flag::*save-file* "")
     (save-state-to-file :filename flag::*save-file*)))
