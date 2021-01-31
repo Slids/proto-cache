@@ -32,6 +32,10 @@
   "URL for a new subscriber, just for testing"
   :type string)
 
+(flag:define flag::*help* nil
+  "Whether to print help"
+  :type boolean)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Global definitions
 
@@ -121,7 +125,7 @@
   (update-publisher-any
    "pika" "chu"
    (google:make-any :type-url "a"))
-  (sleep 10))
+  (sleep 1))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Save load functions.
@@ -154,11 +158,13 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Load/Exit  Hooks.
 
-(defmethod ach::at-restart parse-command-line :before load-proto-cache ()
+(defmethod ach::at-restart parse-command-line ()
   "Parse the command line flags."
-  (flag:parse-command-line))
+  (flag:parse-command-line)
+  (when flag::*help*
+    (flag:print-help)))
 
-(defmethod ach::at-restart load-proto-cache ()
+(defmethod ach::at-restart load-proto-cache :after parse-command-line  ()
   "Load the command line specified file at startup."
   (when (string/= flag::*load-file* "")
     (load-state-from-file :filename flag::*load-file*)))
