@@ -158,18 +158,20 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Load/Exit  Hooks.
 
-(defmethod hook::at-restart parse-command-line ()
+(defmethod hook:at-restart parse-command-line ()
   "Parse the command line flags."
   (flag:parse-command-line)
   (when flag::*help*
-    (flag:print-help)))
+    (flag:print-help)
+    (setf flag::*save-file* "")
+    (setf #'main #'identity)))
 
-(defmethod hook::at-restart load-proto-cache :after parse-command-line  ()
+(defmethod hook:at-restart load-proto-cache :after parse-command-line  ()
   "Load the command line specified file at startup."
   (when (string/= flag::*load-file* "")
     (load-state-from-file :filename flag::*load-file*)))
 
-(defmethod hook::at-exit save-proto-cache ()
+(defmethod hook:at-exit save-proto-cache ()
   "Save the command line specified file at exit."
   (when (string/= flag::*save-file* "")
     (save-state-to-file :filename flag::*save-file*)))
