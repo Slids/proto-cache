@@ -1,5 +1,6 @@
 (defpackage #:proto-cache
-  (:use #:cl)
+  (:use #:cl
+        #:hunchentoot)
   (:export #:register-publisher
            #:register-subscriber
            #:update-publisher-any
@@ -13,7 +14,8 @@
    (#:etc #:ace.core.etc)
    (#:flag #:ace.flag)
    (#:google #:cl-protobufs.google.protobuf)
-   (#:psd #:cl-protobufs.pub-sub-details)))
+   (#:psd #:cl-protobufs.pub-sub-details)
+   (#:pcm #:cl-protobufs.proto-cache-message)))
 
 (in-package #:proto-cache)
 
@@ -28,13 +30,13 @@
   "Specifies the file to save PROTO-CACHE to on shutdown"
   :type string)
 
-(flag:define flag::*new-subscriber* ""
-  "URL for a new subscriber, just for testing"
-  :type string)
-
 (flag:define flag::*help* nil
   "Whether to print help"
   :type boolean)
+
+(flag:define flag::*port* 4242
+  "The port to start huntchentoot on"
+  :type integer)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Global definitions
@@ -47,7 +49,7 @@
   "Make the pub-sub-details struct with a given password."
   (declare (defun:self (string string) psd:pub-sub-details))
   (psd:make-pub-sub-details :username username
-                            :password password
+                            :password (cl-pass:hash password)
                             :current-message (google:make-any)))
 
 (defmethod (setf psd:current-message) :around (new-value (psd psd:pub-sub-details))
@@ -61,10 +63,11 @@
   (let ((subscriber-list (psd:subscriber-list psd)))
     (dolist (subscriber subscriber-list)
       (unwind-protect
-           (drakma:http-request
-            subscriber
-            :content-type "application/octet-stream"
-            :content (cl-protobufs:serialize-to-bytes new-value))
+           (when (string/= "" subscriber)
+             (drakma:http-request
+              subscriber
+              :content-type "application/octet-stream"
+              :content (cl-protobufs:serialize-to-bytes new-value)))
         (print subscriber)))))
 
 (defmethod (setf psd:subscriber-list) :around (new-value (psd psd:pub-sub-details))
@@ -88,6 +91,17 @@
               (thread:make-frmutex))
         t))))
 
+(defun remove-publisher (username password)
+  "Remove a publisher."
+  (thread:with-frmutex-write (*cache-mutex*)
+    (etc:clet ((ps-class
+                (psd:pub-sub-cache-gethash username *cache*))
+               (correct-password (cl-pass:check-password
+                                  password
+                                  (psd:password ps-class))))
+      (declare (ignore correct-password))
+      (psd:pub-sub-cache-gethash username *cache*))))
+
 (defun register-subscriber (publisher address)
   "Register a new subscriber to a publisher."
   (etc:clet ((ps-struct
@@ -96,7 +110,18 @@
              (ps-mutex
               (gethash publisher *mutex-for-pub-sub-details*)))
     (thread:with-frmutex-write (ps-mutex)
-      (push address (psd:subscriber-list ps-struct)))))
+      (unless (member address (psd:subscriber-list ps-struct)
+                      :test #'string=)
+        (push address (psd:subscriber-list ps-struct))))))
+
+(defun remove-subscriber (publisher address)
+  "Remove a subscriber from the subscriber list.."
+  (let ((ps-struct
+          (thread:with-frmutex-read (*cache-mutex*)
+            (psd:pub-sub-cache-gethash publisher *cache*))))
+    (setf (psd:subscriber-list ps-struct)
+          (remove address (psd:subscriber-list ps-struct)
+                  :test #'string=))))
 
 (defun update-publisher-any (username password any)
   "Updates the google:any message for a publisher
@@ -107,25 +132,15 @@
   (etc:clet ((ps-class
               (thread:with-frmutex-read (*cache-mutex*)
                 (psd:pub-sub-cache-gethash username *cache*)))
-             (correct-password (string= (psd:password ps-class)
-                                        password)))
+             (correct-password (cl-pass:check-password
+                                password
+                                (psd:password ps-class))))
     (declare (ignore correct-password))
     (thread:make-thread
      (lambda (ps-class)
        (setf (psd:current-message ps-class) any))
      :arguments (list ps-class))
     t))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Main for the executable.
-
-(defun main ()
-  (register-publisher "pika" "chu")
-  (register-subscriber "pika" flag::*new-subscriber*)
-  (update-publisher-any
-   "pika" "chu"
-   (google:make-any :type-url "a"))
-  (sleep 1))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Save load functions.
@@ -163,8 +178,7 @@
   (flag:parse-command-line)
   (when flag::*help*
     (flag:print-help)
-    (setf flag::*save-file* "")
-    (setf #'main #'identity)))
+    (setf flag::*save-file* "")))
 
 (defmethod hook:at-restart load-proto-cache :after parse-command-line  ()
   "Load the command line specified file at startup."
@@ -175,3 +189,70 @@
   "Save the command line specified file at exit."
   (when (string/= flag::*save-file* "")
     (save-state-to-file :filename flag::*save-file*)))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Huntchentoot.
+
+(define-easy-handler (mortgage-info :uri "/publisher-action") ()
+  (let* ((request (raw-post-data))
+         (request (cl-protobufs:deserialize-from-stream
+                   'pcm:publisher-action
+                   :stream request))
+         (request-success
+           (case (pcm:publisher-action.action request)
+             (pcm:+register+
+              (register-publisher (pcm:publisher-action.username request)
+                                  (pcm:publisher-action.password request)))
+             (pcm:+remove+
+              (remove-publisher (pcm:publisher-action.username request)
+                                (pcm:publisher-action.password request)))
+             (pcm:+update+
+              (update-publisher-any (pcm:publisher-action.username request)
+                                    (pcm:publisher-action.password request)
+                                    (pcm:publisher-action.current-message request)))
+             (t (progn (return-code* +http-not-found+) t)))))
+    (unless request-success
+      (return-code* +http-forbidden+))))
+
+(define-easy-handler (mortgage-info :uri "/subscriber-action") ()
+  (let* ((request (raw-post-data))
+         (request (cl-protobufs:deserialize-from-stream
+                   'pcm:subscriber-action
+                   :stream request))
+         (request-success
+           (case (pcm:publisher-action.action request)
+             (pcm:+register+
+              (register-subscriber (pcm:subscriber-action.publisher request)
+                                   (pcm:subscriber-action.address request)))
+             (pcm:+remove+
+              (remove-subscriber (pcm:subscriber-action.publisher request)
+                                 (pcm:subscriber-action.address request)))
+             (t (progn (return-code* +http-not-found+) t)))))
+    (unless request-success
+      (return-code* +http-forbidden+))))
+
+(setf *dispatch-table*
+      (list #'dispatch-easy-handlers))
+
+(setf *show-lisp-errors-p* t
+      *show-lisp-backtraces-p* t)
+
+(setf *acceptor* nil)
+
+(defun stop-server ()
+  (when *acceptor*
+    (stop *acceptor*)))
+
+(defun start-server ()
+  (stop-server)
+  (start (setf *acceptor*
+               (make-instance
+                'easy-acceptor
+                :port flag::*port*))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Main for the executable.
+
+(defun main ()
+  (start-server))

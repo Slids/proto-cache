@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package proto_cache_message;
+
+import "any.proto";
+
+enum Action {
+  register = 0;
+  remove = 1;
+  update = 2;
+}
+
+message PublisherAction {
+  string username = 1;
+  string password = 2;
+  Action action = 3;
+  google.protobuf.Any current_message = 4;
+}
+
+message SubscriberAction {
+  string address = 1;
+  string publisher = 2;
+  Action actions = 3;
+}
