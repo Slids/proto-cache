@@ -20,5 +20,5 @@ message PublisherAction {
 message SubscriberAction {
   string address = 1;
   string publisher = 2;
-  Action actions = 3;
+  Action action = 3;
 }

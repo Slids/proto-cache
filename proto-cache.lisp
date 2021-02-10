@@ -1,12 +1,7 @@
 (defpackage #:proto-cache
   (:use #:cl
         #:hunchentoot)
-  (:export #:register-publisher
-           #:register-subscriber
-           #:update-publisher-any
-           #:save-state-to-file
-           #:load-state-from-file
-           #:main)
+  (:export #:main)
   (:local-nicknames
    (#:thread #:ace.core.thread)
    (#:defun #:ace.core.defun)
@@ -44,6 +39,7 @@
 (defvar *cache* (psd:make-pub-sub-details-cache))
 (defvar *mutex-for-pub-sub-details* (make-hash-table :test 'equal))
 (defvar *cache-mutex* (thread:make-frmutex))
+(defvar *kill-server* nil)
 
 (defun:defun* make-pub-sub-details (username password)
   "Make the pub-sub-details struct with a given password."
@@ -194,43 +190,50 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Huntchentoot.
 
-(define-easy-handler (mortgage-info :uri "/publisher-action") ()
+(define-easy-handler (publisher-action :uri "/publisher-action") ()
   (let* ((request (raw-post-data))
          (request (cl-protobufs:deserialize-from-stream
                    'pcm:publisher-action
                    :stream request))
          (request-success
            (case (pcm:publisher-action.action request)
-             (pcm:+register+
+             (:register
               (register-publisher (pcm:publisher-action.username request)
                                   (pcm:publisher-action.password request)))
-             (pcm:+remove+
+             (:remove
               (remove-publisher (pcm:publisher-action.username request)
                                 (pcm:publisher-action.password request)))
-             (pcm:+update+
+             (:update
               (update-publisher-any (pcm:publisher-action.username request)
                                     (pcm:publisher-action.password request)
                                     (pcm:publisher-action.current-message request)))
              (t (progn (return-code* +http-not-found+) t)))))
     (unless request-success
-      (return-code* +http-forbidden+))))
+      (return-code* +http-forbidden+)))
+  "")
 
-(define-easy-handler (mortgage-info :uri "/subscriber-action") ()
+(define-easy-handler (subscriber-action :uri "/subscriber-action") ()
   (let* ((request (raw-post-data))
          (request (cl-protobufs:deserialize-from-stream
                    'pcm:subscriber-action
                    :stream request))
          (request-success
-           (case (pcm:publisher-action.action request)
-             (pcm:+register+
+           (case (pcm:subscriber-action.action request)
+             (:register
               (register-subscriber (pcm:subscriber-action.publisher request)
                                    (pcm:subscriber-action.address request)))
-             (pcm:+remove+
+             (:remove
               (remove-subscriber (pcm:subscriber-action.publisher request)
                                  (pcm:subscriber-action.address request)))
              (t (progn (return-code* +http-not-found+) t)))))
     (unless request-success
-      (return-code* +http-forbidden+))))
+      (return-code* +http-forbidden+)))
+  "")
+
+(define-easy-handler (kill-server
+                      :uri "/kill-server") ()
+  (setf *kill-server* t)
+  "Shutting down.")
 
 (setf *dispatch-table*
       (list #'dispatch-easy-handlers))
@@ -255,4 +258,7 @@
 ;; Main for the executable.
 
 (defun main ()
-  (start-server))
+  (start-server)
+  (loop :while (not *kill-server*)
+        :do
+           (sleep (* 60))))
