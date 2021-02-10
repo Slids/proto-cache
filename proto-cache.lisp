@@ -33,6 +33,10 @@
   "The port to start huntchentoot on"
   :type integer)
 
+(flag:define flag::*kill-password* ""
+  "String to receive and kill the server."
+  :type string)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Global definitions
 
@@ -207,9 +211,9 @@
               (update-publisher-any (pcm:publisher-action.username request)
                                     (pcm:publisher-action.password request)
                                     (pcm:publisher-action.current-message request)))
-             (t (progn (return-code* +http-not-found+) t)))))
+             (t (progn (setf (return-code* *reply*) +http-not-found+) t)))))
     (unless request-success
-      (return-code* +http-forbidden+)))
+      (setf (return-code* *reply*) +http-forbidden+)))
   "")
 
 (define-easy-handler (subscriber-action :uri "/subscriber-action") ()
@@ -227,13 +231,19 @@
                                  (pcm:subscriber-action.address request)))
              (t (progn (return-code* +http-not-found+) t)))))
     (unless request-success
-      (return-code* +http-forbidden+)))
+      (setf (return-code* *reply*) +http-forbidden+)))
   "")
 
 (define-easy-handler (kill-server
-                      :uri "/kill-server") ()
-  (setf *kill-server* t)
-  "Shutting down.")
+                      :uri "/kill-server")
+    (password)
+  (if (String= flag::*kill-password* password)
+      (progn
+        (setf *kill-server* t)
+        "Shutting down.")
+      (progn
+        (setf (return-code* *reply*) +http-forbidden+)
+        "")))
 
 (setf *dispatch-table*
       (list #'dispatch-easy-handlers))
